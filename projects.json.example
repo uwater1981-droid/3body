@@ -1,0 +1,12 @@
+{
+  "global": {
+    "max_total_agents": 8
+  },
+  "projects": [
+    {
+      "id": "example-project",
+      "root": "/path/to/your/project",
+      "enabled": true
+    }
+  ]
+}

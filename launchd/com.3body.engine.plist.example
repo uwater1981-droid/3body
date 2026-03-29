@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.3body.engine</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <!-- Update this path to your actual install location -->
+        <string>/Users/YOU/.local/bin/3body-engine.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/3body-engine.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/3body-engine.stderr.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

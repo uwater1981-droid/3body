@@ -1,0 +1,6 @@
+{
+  "name": "3body",
+  "version": "1.2.0",
+  "description": "3body multi-agent orchestration framework — manage projects, tasks, dashboards, and runtime health with live-topology-aware guidance",
+  "skills": ["3body"]
+}

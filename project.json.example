@@ -1,0 +1,16 @@
+{
+  "project_id": "my-project",
+  "project_name": "My Project",
+  "max_codex": 2,
+  "max_claude_code": 2,
+  "min_active_tasks": 4,
+  "dashboard_port": 8765,
+  "backlog": [
+    {
+      "id": "first-task",
+      "goal": "Describe what this task should accomplish",
+      "type": "execution",
+      "priority": "p1"
+    }
+  ]
+}
