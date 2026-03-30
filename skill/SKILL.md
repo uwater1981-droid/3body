@@ -245,10 +245,11 @@ Actions
 2. `projects.json` 是否存在坏路径、重复端口、禁用项目
 3. 每个项目的 `project.json` 是否可解析
 4. `.ai/tasks` 目录或 symlink 是否有效
-5. dashboard 是否可访问
-6. launchd plist 是否存在并与现网匹配
-7. 日志中是否有持续错误、idle spam、死进程
-8. `which codex`、`which claude` 是否可用
+5. dashboard 是否可访问，且 `/api/tasks` 返回的 `apiVersion` 是否符合当前目标版本
+6. dashboard 实际入口是否统一到预期 server 副本，不要只看端口存活
+7. launchd plist / wrapper 是否存在并与现网匹配
+8. 日志中是否有持续错误、idle spam、死进程
+9. `which codex`、`which claude` 是否可用
 
 输出分级：
 
@@ -262,9 +263,9 @@ Actions
 执行节奏：
 
 1. 快扫：
-   注册表、端口、JSON、launchd、二进制路径
+   注册表、端口、JSON、launchd、wrapper、二进制路径、`/api/tasks.apiVersion`
 2. 深扫：
-   只有快扫发现异常时，再继续看日志、代码和死进程
+   只有快扫发现异常时，再继续看日志、代码、入口脚本路径和死进程
 
 推荐输出模板：
 
@@ -292,6 +293,16 @@ Suggested Fix Order
 - 每条 finding 指向明确文件、端口、label 或项目
 - 若无 findings，明确写“未发现 findings”
 - 不自动修复，除非用户继续授权
+
+dashboard 版本一致性检查建议：
+
+- 先请求每个项目的 `http://127.0.0.1:<port>/api/tasks`
+- 读取返回里的 `apiVersion`
+- 再反查该项目实际启动入口：
+  - launchd plist 的 `ProgramArguments`
+  - 或 wrapper 脚本里的 server 路径
+- 如果不同项目指向不同 server 副本，即使页面都可打开，也应至少报 `MEDIUM`
+- 如果目标版本已经声明为某一代（例如 2.0），但入口仍指向旧副本或旧 API，则应报 `HIGH`
 
 ### `/3body restart` — 重启系统
 

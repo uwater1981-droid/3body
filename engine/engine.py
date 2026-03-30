@@ -26,7 +26,7 @@ DEFAULT_CONFIG = {
     'max_codex': 2,
     'max_claude_code': 2,
     'min_active_tasks': 4,
-    'allow_computer_use': False,
+    'allow_computer_use': True,
 }
 
 REGISTRY_PATH = Path(__file__).resolve().parent / 'projects.json'
