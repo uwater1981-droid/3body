@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     'max_codex': 2,
     'max_claude_code': 2,
     'min_active_tasks': 4,
+    'allow_computer_use': False,
 }
 
 REGISTRY_PATH = Path(__file__).resolve().parent / 'projects.json'
@@ -497,8 +498,30 @@ def execute_move(task: TaskState, target_lane: str, target_owner: str, reason: s
         task.path.unlink()
 
 
-def execute_launch(agent: str, task: TaskState, root: Path):
+def task_needs_computer_control(task: TaskState, config: dict = None) -> bool:
+    """Determine if a task needs GUI/computer-use capabilities."""
+    cfg = config or {}
+    if not cfg.get('allow_computer_use', False):
+        return False
+    charter = task.data.get('task_charter') or {}
+    # 1. Task type explicitly marks GUI work
+    if charter.get('task_type') in ('gui-ops', 'browser-ops', 'computer-action'):
+        return True
+    # 2. Latest checkpoint requests computer action
+    if task.latest_cp.get('needs_computer_action'):
+        return True
+    # 3. Goal keyword matching
+    goal = charter.get('goal', '').lower()
+    keywords = ['浏览器', 'browser', '截图', 'screenshot', '登录', 'login',
+                '注册', 'register', '安装', 'install', 'gui', '界面操作',
+                '打开应用', 'open app', '账号注册', 'account setup',
+                'tiktok', 'instagram', 'facebook', '网页操作', 'web操作']
+    return any(kw in goal for kw in keywords)
+
+
+def execute_launch(agent: str, task: TaskState, root: Path, config: dict = None):
     """Launch Codex or Claude Code CLI for a task."""
+    cfg = config or {}
     log_root = root / '.ai' / 'logs'
     log_root.mkdir(parents=True, exist_ok=True)
     ts = now_local().strftime('%Y%m%d-%H%M%S')
@@ -521,24 +544,50 @@ def execute_launch(agent: str, task: TaskState, root: Path):
         prompt = base_prompt + (
             "You are the EXECUTION agent. Write code, create files, implement features.\n"
             "When done with your step, set next_owner='claude_code' for audit.\n"
+            "If a task requires GUI interaction (browser, app login, etc.) that you cannot do,\n"
+            "set needs_computer_action=true in your checkpoint so claude_code can handle it.\n"
         )
         codex_bin = shutil.which('codex') or 'codex'
         cmd = [codex_bin, 'exec', '--skip-git-repo-check', prompt]
+
     elif agent == 'claude_code':
-        prompt = base_prompt + (
-            "You are the AUDIT/SUPERVISION agent. Your job is THOROUGH and SUBSTANTIVE:\n"
-            "1. READ all related files the task touches. Don't just check the task JSON.\n"
-            "2. VERIFY deliverables exist and have correct content (open the actual files).\n"
-            "3. CHECK for quality issues: missing fields, placeholder values, broken references.\n"
-            "4. If issues found, FIX THEM DIRECTLY (you can write files for fixes/improvements).\n"
-            "5. WRITE a detailed audit summary with specific evidence.\n"
-            "6. If the work passes audit with no issues, set status='done'.\n"
-            "7. If you fixed issues or more work needed, set next_owner='codex' with specific instructions.\n"
-            "Take your time. A thorough 5-minute review is worth more than a 30-second rubber stamp.\n"
-        )
+        needs_computer = task_needs_computer_control(task, cfg)
         claude_bin = shutil.which('claude') or 'claude'
-        cmd = [claude_bin, '--print', '--dangerously-skip-permissions',
-               '--model', 'opus', '--effort', 'max', prompt]
+
+        if needs_computer:
+            # Computer operator mode — can control screen, browser, apps
+            prompt = base_prompt + (
+                "You are the COMPUTER OPERATOR agent. You have access to computer-use tools.\n"
+                "Your job: complete tasks that require GUI interaction (browser, apps, login, etc.).\n\n"
+                "WORKFLOW:\n"
+                "1. Use mcp__computer-use__request_access to get permission for the app you need\n"
+                "2. Use mcp__computer-use__screenshot to see the current screen\n"
+                "3. Use mcp__computer-use__left_click, type, key for interactions\n"
+                "4. Take screenshots to verify each step succeeded\n"
+                "5. Write evidence (what you did, what you saw) back to the task checkpoint\n"
+                "6. If the task is complete, set status='done'\n"
+                "7. If more coding is needed, set next_owner='codex' with instructions\n\n"
+                "You can also read/write files, run bash commands, and do everything a normal agent can.\n"
+                "The computer-use tools are ADDITIONAL capabilities for GUI work.\n"
+            )
+            cmd = [claude_bin, '--dangerously-skip-permissions',
+                   '--model', 'opus', '--effort', 'max',
+                   '-p', prompt]
+        else:
+            # Standard audit/supervision mode
+            prompt = base_prompt + (
+                "You are the AUDIT/SUPERVISION agent. Your job is THOROUGH and SUBSTANTIVE:\n"
+                "1. READ all related files the task touches. Don't just check the task JSON.\n"
+                "2. VERIFY deliverables exist and have correct content (open the actual files).\n"
+                "3. CHECK for quality issues: missing fields, placeholder values, broken references.\n"
+                "4. If issues found, FIX THEM DIRECTLY (you can write files for fixes/improvements).\n"
+                "5. WRITE a detailed audit summary with specific evidence.\n"
+                "6. If the work passes audit with no issues, set status='done'.\n"
+                "7. If you fixed issues or more work needed, set next_owner='codex' with specific instructions.\n"
+                "Take your time. A thorough 5-minute review is worth more than a 30-second rubber stamp.\n"
+            )
+            cmd = [claude_bin, '--print', '--dangerously-skip-permissions',
+                   '--model', 'opus', '--effort', 'max', prompt]
     else:
         return None
 
@@ -575,7 +624,7 @@ def execute_launch(agent: str, task: TaskState, root: Path):
     return proc.pid
 
 
-def dispatch(actions: list[Action], root: Path) -> list[dict]:
+def dispatch(actions: list[Action], root: Path, config: dict = None) -> list[dict]:
     """Execute all actions. Returns results for notification."""
     results = []
     for a in actions:
@@ -591,10 +640,13 @@ def dispatch(actions: list[Action], root: Path) -> list[dict]:
                 results.append({'type': 'moved', 'task': a.task.task_id,
                                 'to': a.target_lane, 'owner': a.target_owner})
             elif a.action_type == 'launch':
-                pid = execute_launch(a.agent_to_launch, a.task, root)
+                pid = execute_launch(a.agent_to_launch, a.task, root, config)
                 if pid:
+                    mode = 'computer-use' if (a.agent_to_launch == 'claude_code'
+                           and task_needs_computer_control(a.task, config)) else 'standard'
                     results.append({'type': 'launched', 'task': a.task.task_id,
-                                    'agent': a.agent_to_launch, 'pid': pid})
+                                    'agent': a.agent_to_launch, 'pid': pid,
+                                    'mode': mode})
         except Exception as e:
             print(f'  [ERROR] {a.action_type} on {a.task.task_id}: {e}')
     return results
@@ -800,7 +852,7 @@ def run_project(root: Path, config: dict, dry_run: bool = False, total_running: 
     if dry_run:
         return 0
 
-    results = dispatch(actions, root)
+    results = dispatch(actions, root, config)
     notify._project_id = pid  # Set project context for idle alerts
     notify(results, tasks)
     return sum(1 for r in results if r['type'] == 'launched')
